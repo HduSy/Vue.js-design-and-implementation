@@ -25,3 +25,34 @@ const obj = new Proxy(data, {
     return true
   }
 })
+
+/**
+ * 根本原因是，我们没有在副作用函数与被操作的目标字段之间建立明确的联系，拦截了对所有属性的操作！
+ * 当读取属性时，无论读取的是哪一个属性，其实都一样，都会把副作用函数收集到“桶”里；
+ * 当设置属性时，无论设置的是哪一个属性，也都会把“桶”里的副作用函数取出并执行
+ * 设计一个树形结构
+ * 同一属性可能对应多个不同的副作用函数；
+ * 同一副作用函数可能同时读取了多个树形
+ * target --> keys --> effectFns
+ */
+
+const bucket2 = new WeakMap()
+const obj2 = new Proxy(data, {
+  get(target, key) {
+    if(!activeEffect) return target[key] // 没有effect直接返回
+    let depsMap = bucket2.get(target) // Map: target ---> keys map
+    if(!depsMap) bucket2.set(target, depsMap = new Map())
+    let deps = depsMap.get(key) // Set: key ---> effectFns set
+    if(!deps) depsMap.set(key, deps = new Set())
+    deps.add(activeEffect)
+    return target[key]
+  },
+  set(target, key, val) {
+    target[key] = val
+    const depsMap = bucket2.get(target) // Map: target ---> keys map
+    if(!depsMap) return false
+    const effectFns = depsMap.get(key) // Set: key ---> effectFns set
+    effectFns && effectFns.forEach(fn => fn())
+    return true
+  }
+})
