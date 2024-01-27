@@ -32,7 +32,7 @@ const obj = new Proxy(data, {
  * 当设置属性时，无论设置的是哪一个属性，也都会把“桶”里的副作用函数取出并执行
  * 设计一个树形结构
  * 同一属性可能对应多个不同的副作用函数；
- * 同一副作用函数可能同时读取了多个树形
+ * 同一副作用函数可能同时读取了多个属性
  * target --> keys --> effectFns
  */
 
@@ -56,3 +56,36 @@ const obj2 = new Proxy(data, {
     return true
   }
 })
+
+// 逻辑封装到track trigger
+const obj3 = new Proxy(data, {
+  get(target, key) {
+    track(target, key)
+    return target[key]
+  },
+  set(target, key, val) {
+    target[key] = val
+    trigger(target, key)
+    return true
+  }
+})
+// get时拦截，追踪变化
+function track(target, key) {
+  if(!activeEffect) return
+  let depsMap = bucket2.get(target)
+  if(!depsMap) {
+    bucket2.set(target, (depsMap = new Map()))
+  }
+  let deps = depsMap.get(key)
+  if(!deps) {
+    depsMap.set(key, (deps = new Map()))
+  }
+  deps.add(activeEffect)
+}
+// set时拦截，执行相关副作用函数
+function trigger(target, key) {
+  const depsMap = bucket2.get(target)
+  if(!depsMap) return
+  const effectFns = depsMap.get(key)
+  effectFns && effectFns.forEach(fn => fn())
+}
